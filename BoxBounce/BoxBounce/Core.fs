@@ -1,5 +1,5 @@
-module Core
-namespace BoxBounce
+module BoxBounce.Core
+
 open System
 open System.Drawing
 open Rhino
@@ -13,7 +13,6 @@ open Rhino.Display
 module rs = GosLib.RhinoScriptSyntax
 
 let rnd = new Random()
-
 let unitize vector =
     let vector' = vector.copy
     vector'.Unitize() |> ignore
@@ -25,51 +24,73 @@ let SPEED = 0.005
 let BOX = Box(Plane.WorldXY, [Point3d(0.,0.,0.) ; Point3d(1.,1.,1.)] )
 
 
-// Propositions
+// Geometry.Constructors
+let v3f (v:Vector3d) = Vector3f(float32 v.X, float32 v.Y, float32 v.Z)
+let p3f (v:Point3d) = Point3f(float32 v.X, float32 v.Y, float32 v.Z)
+
+
+// Geometry.Propositions
 let within (limit):
     let prop(line, point) =
         limit >= line.DistanceTo point true
     prop
 
-// Measures
+
+// Geometry.Measures
 let distance (p1: Point3d, p2: Point3d) =
     (p1 - p2).Length
 
+// Geometry.Transforms
+let average (points) =
+    let mutable cen = Point3d()
+        for vertex in  ball.mesh.Vertices do
+            cen <- cen + vertex
+    cen <- cen / float ball.mesh.Vertices.Count 
 
+let ranVec() =
+    Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble()) 
 
-
-
-type Ball (cen:Point3d, line:Geometry.Line) =
+// Core.Ball
+type Ball (cen:Point3d, line:Geometry.Line) as ball =
     let cen = cen
     let sphere = Sphere point rad
     let mesh = Mesh.CreateFromSphere sphere 15 15
     let color = color
     let line = line
 
-    method self.move (vector) =
-        self.cen = self.cen + vector
+    method ball.distance (ball2: Ball) =
+        distance(ball.cen, ball2.cen) - 2 * rad
+
+    method ball.move (vector) =
+        ball.cen <- ball.cen + vector
         moveMesh ball.mesh vector
         self
 
+let face_vert_indices(face):
+    let len = match 
+    = [0..len] |> List.map(face.Item)
+            let face_verts = face_vert_indices |> List.map(V.get)
+            let face_center =  average face_verts
+
+// Core.ball.Measures
+let 
+
+// Core.Balls
 type Balls () =
     inherit Rarr()
 
-    let self.collisions () =
-        for i = 0 to balls.Count - 1 do
-            let cen_1 = balls.[i].cen
+    method self.collisions () =
+        let collisions = Balls()
+
+        for i = 0 to balls.Count - 1  do
             for j = i + 1 to balls.Count - 1 do
-                let cen_2 = balls.[j].cen
-                if distance(cen_1, cen_2) < 2 * rad then
-                    explode.Add balls.[i] 
-                    explode.Add balls.[j]
+                if balls.[i].distance(balls.[j]) < 0 then
+                    collisions.Add balls.[i]
+                    collisions.Add balls.[j]
+        collisions
 
-
-let v3f (v:Vector3d) = Vector3f(float32 v.X, float32 v.Y, float32 v.Z)
-
-
-let p3f (v:Point3d) = Point3f(float32 v.X, float32 v.Y, float32 v.Z)
-
-
+// Core.BallBehaviors
+// Travel
 let updateBall (ball:Ball) =
     let velocity = ball.line.Direction * SPEED
     let cen' = ball.cen + velocity
@@ -80,7 +101,36 @@ let updateBall (ball:Ball) =
 
     ball.move velocity
 
+let explodeBall (ball:Ball) =
+    ball.mesh.Unweld(0.,true)
 
+
+        let mesh = ball.mesh
+        let vertices = mesh.Vertices
+        let faces = mesh.Faces
+
+        let mesh_center = average(vertices)
+
+
+        for face in ball.mesh.Faces do
+            let face_center = face.GetFaceCenter()
+            let direction = (face_center - mesh_center) * 0.02
+            
+            update_face_verts(fun (p) ->
+                p + direction + ran() * 0.005
+            )
+
+// Core.BallsBehaviors
+let do_balls_behaviors (balls:Balls) =
+    match balls.collisions with
+        |[] -> for ball in balls do updateBall ball
+        | collisions ->
+            do collisions |> List.map(explodeBall)
+        Error(balls)
+        
+
+
+// Core.ViewComputation
 let getCamline(view:RhinoViewport)  = 
     let camline = Line(view.CameraLocation , view.CameraDirection )           
     camline.Extend(1000.,1000.) |> ignore
@@ -97,16 +147,26 @@ let getCamline(view:RhinoViewport)  =
 
 
 let getCrosshair (view:RhinoViewport)  = 
-    match getCamline view with      
+
+    let crosshair (point, vector) = 
+        let vector' = unitize(vector) * rad
+        Line(point - vector', point + vector') 
+
+    match getCamline view with
     | Some camline -> 
-        let x = unitize(view.CameraX) * rad
-        let y = unitize(view.CameraY) * rad
         let cen = camline.From
-        let x_crosshair = Line(cen-x,cen+x)
-        let y_crosshair = Line(cen-y,cen+y)
-
+        let x_axis, y_axis = view.CameraX, view.CameraY
+        let x_crosshair = crosshair(cen, x_axis)
+        let y_crosshair = crosshair(cen, y_axis)
         Some(x_crosshair, y_crosshair)
+    | None -> None
 
+
+let addBall (view:RhinoViewport) =
+    match getCamline view with
+    | Some camline ->
+        let cen = camline.From
+        Some Ball(cen, camline, Color.Red)
     | None -> None
 
 
@@ -116,72 +176,27 @@ type Conduit () =
 
     let balls = Balls()
 
-
-    member this.AddBall  (view:RhinoViewport) =
-        match getCamline view with
-        | Some camline -> 
-            let cen = camline.From
-            let ball = Ball(cen, camline, Color.Red)
-
-            balls.Add ball
-
-        | None -> ()
+    member this.AddBalls (view:RhinoViewport) =
+        match addBall(view) with
+        | Some ball -> balls.add
+        | None -> None
 
 
     override this.PreDrawObjects (drawEventArgs:DrawEventArgs) =                
 
         let view = drawEventArtgs.Viewport
         let display = drawEventArtgs.Display
-        let explode = Rarr()
 
         base.PreDrawObjects(drawEventArgs)
 
         match getCrosshair view with
         |Some(x_crosshair, y_crosshair) ->
-
             display.DrawLine (x_crosshair, Color.Blue)
             display.DrawLine (y_crosshair, Color.Blue)
-
         |None -> ()
 
-
-
-
-        if explode.Count > 0 then
-            for ball in explode do  
-                ball.mesh.Unweld(0.,true)
-
-                let mutable cen = Point3d()
-                for p in  ball.mesh.Vertices do
-                    cen <- cen + (Point3d( p))
-                cen <- cen / float  ball.mesh.Vertices.Count 
-
-                for face in ball.mesh.Faces do
-                    let a = Point3d(ball.mesh.Vertices.[face.A])
-                    let b = Point3d(ball.mesh.Vertices.[face.B])
-                    let c = Point3d(ball.mesh.Vertices.[face.C])
-                    let d = Point3d(ball.mesh.Vertices.[face.D])
-                    let fc = (a+b+c+d) / 4.0
-
-                    let dir = (fc - cen) * 0.02
-                    let ran() = (Vector3d(rnd.NextDouble(), rnd.NextDouble(), rnd.NextDouble()))*0.005                        
-                    ball.mesh.Vertices.[face.A] <- p3f (a + dir + ran() )
-                    ball.mesh.Vertices.[face.B] <- p3f (b + dir + ran() )
-                    ball.mesh.Vertices.[face.C] <- p3f (c + dir + ran() )
-                    ball.mesh.Vertices.[face.D] <- p3f (d + dir + ran() )
-
-                    if abs(a.X) > 4.0 then 
-                        balls.Clear()
-                        cancel := true
-
-            let cor = Point2d(550.,290.)
-            let tx = "Game Over"
-            //e.Display.Draw2dText(tx,Color.Red,cor,true)
-            e.Display.Draw2dText(tx,Color.Red,cor,true, 90)
-
-        else
-            for ball in balls do
-                updateBall ball
+        balls <- do_balls_behaviors(balls)
+            
 
         let mat = new DisplayMaterial (new Rhino.DocObjects.Material())
         for ball in balls do
@@ -194,7 +209,5 @@ type Conduit () =
         e.Display.Draw2dText(tx,Color.Gray,cor,true, 50)
         e.Display.EnableDepthWriting true
         e.Display.EnableDepthTesting true
-
-    member this.PDO (e:DrawEventArgs) = this.PreDrawObjects e
 
         
