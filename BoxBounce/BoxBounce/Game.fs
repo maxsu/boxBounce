@@ -50,8 +50,6 @@ module Game =
         let rate = Limiter 300
         
         // Commands
-        let addBall =
-                
         let addBall = rate.limit(
             fun () -> 
                 conduit.AddBall(view)
