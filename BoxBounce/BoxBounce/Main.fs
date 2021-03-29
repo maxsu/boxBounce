@@ -11,7 +11,7 @@ type private NewPlugIn() =
 
 
 [<Guid("ce66e7f8-7f16-476d-a30e-6540a04c25eb")>]
-type BoxBounce() =
+type private BoxBounce() =
     inherit Command()
     
     static member val Instance = BoxBounce()
