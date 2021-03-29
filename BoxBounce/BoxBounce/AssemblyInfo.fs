@@ -1,7 +1,5 @@
 ﻿namespace FSharpRhinoScripting
 
-//open System.Runtime
-//open System.Runtime.CompilerServices
 open System.Runtime.InteropServices
 open System.Reflection
 open Rhino.PlugIns
